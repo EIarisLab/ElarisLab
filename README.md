@@ -166,6 +166,6 @@ Elaris Lab is more than a scanner — it’s a thinking system.
 Built to explore, predict, and protect the evolving blockchain frontier.  
 From smart contract insights to protocol foresight, Elaris helps you stay informed before the threat arrives.
 
-> Research ahead. Act ahead. Stay ahead — with Elaris.
+> Research ahead. Act ahead. Stay ahead — with Elaris
 
 ---
