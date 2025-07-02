@@ -1,0 +1,14 @@
+{
+  "projectName": "ElarisLab",
+  "environment": "development",
+
+  "logging": {
+    "level": "debug",
+    "destinations": ["console", "file"],
+    "filePath": "./logs/elarislab.log"
+  },
+  "features": {
+    "enableDiagnostics": true,
+    "enableRealTimeAlerts": false
+  }
+}

@@ -1,0 +1,1 @@
+export const SOLANA_KNOWLEDGE_AGENT_ID = "solana-knowledge-agent" as const
