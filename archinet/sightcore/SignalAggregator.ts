@@ -1,5 +1,3 @@
-
-
 import type { SightCoreMessage } from "./WebSocketClient"
 
 export interface AggregatedSignal {
@@ -28,6 +26,20 @@ export class SignalAggregator {
 
   getAllAggregated(): AggregatedSignal[] {
     return Object.values(this.counts)
+  }
+
+  /** Remove all aggregated data for a specific topic */
+  removeTopic(topic: string): boolean {
+    if (this.counts[topic]) {
+      delete this.counts[topic]
+      return true
+    }
+    return false
+  }
+
+  /** Number of topics currently being aggregated */
+  get size(): number {
+    return Object.keys(this.counts).length
   }
 
   reset(): void {
