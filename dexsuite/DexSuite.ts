@@ -1,4 +1,4 @@
-import fetch from 'node-fetch'
+import fetch, { RequestInit } from 'node-fetch'
 
 export interface PairInfo {
   exchange: string
@@ -15,53 +15,105 @@ export interface DexSuiteConfig {
   timeoutMs?: number
   retries?: number
   cacheTTLMs?: number
+  backoffFactorMs?: number
+}
+
+interface CacheEntry<T> {
+  timestamp: number
+  data: T
 }
 
 export class DexSuite {
-  // in-memory cache with TTL
-  private cache = new Map<string, { timestamp: number; data: PairInfo[] }>()
+  private cache = new Map<string, CacheEntry<PairInfo[]>>()
+  private timeoutMs: number
+  private retries: number
+  private cacheTTLMs: number
+  private backoffFactorMs: number
 
-  constructor(private config: DexSuiteConfig) {}
+  constructor(private config: DexSuiteConfig) {
+    this.timeoutMs = config.timeoutMs ?? 10_000
+    this.retries = config.retries ?? 2
+    this.cacheTTLMs = config.cacheTTLMs ?? 60_000
+    this.backoffFactorMs = config.backoffFactorMs ?? 200
+  }
+
+  /** Clear entire in-memory cache */
+  public clearCache(): void {
+    this.cache.clear()
+  }
+
+  /** Remove a single pair from cache */
+  public invalidate(pairAddress: string): void {
+    this.cache.delete(pairAddress)
+  }
 
   private async fetchFromApi<T>(
     api: { name: string; baseUrl: string; apiKey?: string },
     path: string
   ): Promise<T> {
-    const { timeoutMs = 10000, retries = 1 } = this.config
-    for (let attempt = 0; attempt <= retries; attempt++) {
+    const url = `${api.baseUrl}${path}`
+    const headers: Record<string, string> = api.apiKey
+      ? { Authorization: `Bearer ${api.apiKey}` }
+      : {}
+
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs)
       try {
-        const res = await fetch(`${api.baseUrl}${path}`, {
-          headers: api.apiKey ? { Authorization: `Bearer ${api.apiKey}` } : {},
+        const res = await fetch(url, {
+          method: 'GET',
+          headers,
           signal: controller.signal,
-        })
-        if (!res.ok) throw new Error(`${api.name} ${path} ${res.status}`)
+        } as RequestInit)
+        clearTimeout(timer)
+
+        if (!res.ok) {
+          throw new Error(
+            `API ${api.name} ${path} returned ${res.status} ${res.statusText}`
+          )
+        }
         return (await res.json()) as T
       } catch (err) {
-        if (attempt === retries) throw err
-      } finally {
         clearTimeout(timer)
+        if (attempt < this.retries) {
+          const delay = this.backoffFactorMs * 2 ** attempt
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        console.error(
+          `[DexSuite] Failed ${api.name}${path} after ${attempt + 1} attempts:`,
+          err
+        )
+        throw err
       }
     }
-    throw new Error('Unreachable fetch logic')
+    // unreachable
+    throw new Error('[DexSuite] fetchFromApi: logic error')
   }
 
   /**
    * Retrieve aggregated pair info across all configured DEX APIs,
-   * with optional caching.
+   * with optional in-memory caching.
    */
-  async getPairInfo(pairAddress: string): Promise<PairInfo[]> {
+  public async getPairInfo(pairAddress: string): Promise<PairInfo[]> {
     const now = Date.now()
-    const ttl = this.config.cacheTTLMs ?? 60000
     const cached = this.cache.get(pairAddress)
-    if (cached && now - cached.timestamp < ttl) return cached.data
+    if (cached && now - cached.timestamp < this.cacheTTLMs) {
+      return cached.data
+    }
 
     const results: PairInfo[] = []
     await Promise.all(
       this.config.apis.map(async api => {
         try {
-          const data = await this.fetchFromApi<any>(api, `/pair/${pairAddress}`)
+          const data = await this.fetchFromApi<{
+            token0: { symbol: string }
+            token1: { symbol: string }
+            liquidityUsd: number | string
+            volume24hUsd: number | string
+            priceUsd: number | string
+          }>(api, `/pair/${encodeURIComponent(pairAddress)}`)
+
           results.push({
             exchange: api.name,
             pairAddress,
@@ -72,7 +124,7 @@ export class DexSuite {
             priceUsd: Number(data.priceUsd),
           })
         } catch {
-          // skip failed API
+          // skip this API on failure
         }
       })
     )
@@ -82,22 +134,30 @@ export class DexSuite {
   }
 
   /**
-   * Compare a list of pairs across exchanges, returning the best volume and liquidity.
+   * Compare a list of pair addresses across exchanges,
+   * returning the highest-volume and highest-liquidity sources.
    */
-  comparePairs(
+  public async comparePairs(
     pairs: string[]
-  ): Promise<Record<string, { bestVolume: PairInfo; bestLiquidity: PairInfo }>> {
-    return Promise.all(
+  ): Promise<
+    Record<string, { bestVolume: PairInfo; bestLiquidity: PairInfo }>
+  > {
+    const entries = await Promise.all(
       pairs.map(async addr => {
         const infos = await this.getPairInfo(addr)
+        if (infos.length === 0) {
+          throw new Error(`No data for pair ${addr}`)
+        }
         const bestVolume = infos.reduce((a, b) =>
           b.volume24hUsd > a.volume24hUsd ? b : a
-        , infos[0])
+        )
         const bestLiquidity = infos.reduce((a, b) =>
           b.liquidityUsd > a.liquidityUsd ? b : a
-        , infos[0])
+        )
         return [addr, { bestVolume, bestLiquidity }] as const
       })
-    ).then(Object.fromEntries)
+    )
+
+    return Object.fromEntries(entries)
   }
 }
