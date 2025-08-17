@@ -28,7 +28,6 @@ export class SignalAggregator {
     return Object.values(this.counts)
   }
 
-  /** Remove all aggregated data for a specific topic */
   removeTopic(topic: string): boolean {
     if (this.counts[topic]) {
       delete this.counts[topic]
@@ -37,7 +36,6 @@ export class SignalAggregator {
     return false
   }
 
-  /** Number of topics currently being aggregated */
   get size(): number {
     return Object.keys(this.counts).length
   }
