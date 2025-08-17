@@ -1,8 +1,6 @@
 import fetch from "node-fetch"
 
-/*------------------------------------------------------
- * Types
- *----------------------------------------------------*/
+
 
 interface Candle {
   timestamp: number
@@ -25,14 +23,10 @@ export interface PatternSignal {
   confidence: number
 }
 
-/*------------------------------------------------------
- * Detector
- *----------------------------------------------------*/
 
 export class CandlestickPatternDetector {
   constructor(private readonly apiUrl: string) {}
 
-  /* Fetch recent OHLC candles */
   async fetchCandles(symbol: string, limit = 100): Promise<Candle[]> {
     const res = await fetch(`${this.apiUrl}/markets/${symbol}/candles?limit=${limit}`, {
       timeout: 10_000,
@@ -42,8 +36,6 @@ export class CandlestickPatternDetector {
     }
     return (await res.json()) as Candle[]
   }
-
-  /* ------------------------- Pattern helpers ---------------------- */
 
   private isHammer(c: Candle): number {
     const body = Math.abs(c.close - c.open)
@@ -89,5 +81,3 @@ export class CandlestickPatternDetector {
     const ratio = range > 0 ? body / range : 1
     return ratio < 0.1 ? 1 - ratio * 10 : 0
   }
-
-  /* ---------------------*
