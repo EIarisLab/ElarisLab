@@ -1,5 +1,5 @@
-import { execCommand } from './execCommand'
-import pLimit from 'p-limit'
+import { execCommand } from "./execCommand"
+import pLimit from "p-limit"
 
 export interface ShellTask {
   id: string
@@ -11,80 +11,172 @@ export interface ShellResult {
   taskId: string
   output?: string
   error?: string
+  exitCode?: number
   executedAt: number
   durationMs: number
+  attempts: number
 }
 
-/**
- * Schedules and executes shell tasks with optional concurrency.
- */
+export interface RunOptions {
+  concurrency?: number
+  retries?: number
+  backoffMs?: number
+  timeoutMs?: number
+}
+
+type InternalTask = ShellTask & {
+  retries: number
+  backoffMs: number
+  timeoutMs: number
+}
+
 export class ShellTaskRunner {
   private readonly defaultConcurrency: number
-  private scheduledTasks: ShellTask[] = []
+  private readonly defaultRetries: number
+  private readonly defaultBackoffMs: number
+  private readonly defaultTimeoutMs: number
+  private scheduledTasks: InternalTask[] = []
+  private taskIds = new Set<string>()
 
-  constructor(concurrency: number = 1) {
+  constructor(concurrency: number = 1, retries = 0, backoffMs = 0, timeoutMs = 0) {
     if (!Number.isInteger(concurrency) || concurrency < 1) {
-      throw new RangeError(`Concurrency must be a positive integer. Received: ${concurrency}`)
+      throw new RangeError(`concurrency must be a positive integer, received ${concurrency}`)
+    }
+    if (!Number.isInteger(retries) || retries < 0) {
+      throw new RangeError(`retries must be a nonnegative integer, received ${retries}`)
+    }
+    if (!Number.isInteger(backoffMs) || backoffMs < 0) {
+      throw new RangeError(`backoffMs must be a nonnegative integer, received ${backoffMs}`)
+    }
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 0) {
+      throw new RangeError(`timeoutMs must be a nonnegative integer, received ${timeoutMs}`)
     }
     this.defaultConcurrency = concurrency
+    this.defaultRetries = retries
+    this.defaultBackoffMs = backoffMs
+    this.defaultTimeoutMs = timeoutMs
   }
 
-  /**
-   * Adds a task to the queue.
-   */
-  public scheduleTask(task: ShellTask): void {
+  public scheduleTask(task: ShellTask, overrides?: Partial<RunOptions>): void {
     if (!task.id?.trim() || !task.command?.trim()) {
-      throw new Error('Each task must have a valid `id` and `command`.')
+      throw new Error("each task must have a valid id and command")
     }
-    this.scheduledTasks.push(task)
+    if (this.taskIds.has(task.id)) {
+      throw new Error(`duplicate task id: ${task.id}`)
+    }
+    const retries = Math.max(
+      0,
+      Math.floor(overrides?.retries ?? this.defaultRetries)
+    )
+    const backoffMs = Math.max(
+      0,
+      Math.floor(overrides?.backoffMs ?? this.defaultBackoffMs)
+    )
+    const timeoutMs = Math.max(
+      0,
+      Math.floor(overrides?.timeoutMs ?? this.defaultTimeoutMs)
+    )
+    this.scheduledTasks.push({ ...task, retries, backoffMs, timeoutMs })
+    this.taskIds.add(task.id)
   }
 
-  /**
-   * Returns a copy of the currently scheduled tasks.
-   */
-  public getScheduledTasks(): ReadonlyArray<ShellTask> {
-    return [...this.scheduledTasks]
+  public scheduleMany(tasks: ShellTask[], overrides?: Partial<RunOptions>): void {
+    for (const t of tasks) this.scheduleTask(t, overrides)
   }
 
-  /**
-   * Clears the task queue.
-   */
+  public removeTask(taskId: string): boolean {
+    const idx = this.scheduledTasks.findIndex(t => t.id === taskId)
+    if (idx === -1) return false
+    this.scheduledTasks.splice(idx, 1)
+    this.taskIds.delete(taskId)
+    return true
+  }
+
   public clearTasks(): void {
     this.scheduledTasks = []
+    this.taskIds.clear()
   }
 
-  /**
-   * Executes all scheduled tasks in parallel with concurrency control.
-   * Returns an array of ShellResult with either `output` or `error`.
-   */
-  public async runAll(concurrency?: number): Promise<ShellResult[]> {
+  public getScheduledTasks(): ReadonlyArray<ShellTask> {
+    return this.scheduledTasks.map(({ id, command, description }) => ({ id, command, description }))
+  }
+
+  public async runAll(options?: RunOptions): Promise<ShellResult[]> {
     const tasksToRun = [...this.scheduledTasks]
-    this.scheduledTasks = [] // prevent re-execution
+    this.clearTasks()
 
-    const limit = pLimit(concurrency ?? this.defaultConcurrency)
-    const results: ShellResult[] = []
+    const concurrency = Math.max(
+      1,
+      Math.floor(options?.concurrency ?? this.defaultConcurrency)
+    )
+    const limit = pLimit(concurrency)
 
-    const runTask = async (task: ShellTask): Promise<void> => {
-      const startedAt = Date.now()
+    const results: ShellResult[] = new Array(tasksToRun.length)
+    await Promise.all(
+      tasksToRun.map((task, index) =>
+        limit(async () => {
+          results[index] = await this.runSingle(task)
+        })
+      )
+    )
+    return results
+  }
+
+  private async runSingle(task: InternalTask): Promise<ShellResult> {
+    const startedAt = Date.now()
+    let attempts = 0
+
+    while (true) {
+      attempts++
       try {
-        const output = await execCommand(task.command)
-        results.push({
+        const output = await this.execWithTimeout(task.command, task.timeoutMs)
+        return {
           taskId: task.id,
           output,
           executedAt: startedAt,
           durationMs: Date.now() - startedAt,
-        })
-      } catch (error: unknown) {
-        results.push({
+          attempts,
+          exitCode: 0
+        }
+      } catch (err: any) {
+        if (attempts <= task.retries) {
+          const delayMs = task.backoffMs * attempts
+          if (delayMs > 0) await this.delay(delayMs)
+          continue
+        }
+        return {
           taskId: task.id,
-          error: error instanceof Error ? error.message : String(error),
+          error: err?.message ?? String(err),
           executedAt: startedAt,
           durationMs: Date.now() - startedAt,
-        })
+          attempts
+        }
       }
     }
+  }
 
-    await Promise.all(tasksToRun.map(task => limit(() => runTask(task))))
-    return results
+  private async execWithTimeout(command: string, timeoutMs: number): Promise<string> {
+    if (!timeoutMs || timeoutMs <= 0) {
+      return execCommand(command)
+    }
+    let timeoutHandle: NodeJS.Timeout | undefined
+    try {
+      const race = await Promise.race<string>([
+        execCommand(command),
+        new Promise<string>((_, reject) => {
+          timeoutHandle = setTimeout(
+            () => reject(new Error(`timeout after ${timeoutMs}ms`)),
+            timeoutMs
+          )
+        })
+      ])
+      return race
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle)
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
   }
 }
