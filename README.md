@@ -7,11 +7,12 @@ It identifies vulnerabilities, monitors smart contract risks, and forecasts mark
 
 ## 🔗 Ecosystem Links  
 
-[![Chrome Extension](https://chromewebstore.google.com/detail/elarislab/cjbgpofiokeepomjjajmenhhohdnpdkd)  
-[![Docs](https://elarislab.gitbook.io/elarislab/)  
-[![Website](https://elarisai.com)  
-[![GitHub](https://github.com/ElarisLab/ElarisLab)  
-[![Twitter](https://x.com/ElarisLab)  
+
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/elarislab/cjbgpofiokeepomjjajmenhhohdnpdkd)  
+[![Docs](https://img.shields.io/badge/Docs-GitBook-3B82F6?logo=bookstack&logoColor=white)](https://elarislab.gitbook.io/elarislab/)  
+[![Website](https://img.shields.io/badge/Web-ElarisAI.com-8B5CF6?logo=vercel&logoColor=white)](https://elarisai.com)  
+[![GitHub](https://img.shields.io/badge/GitHub-Code-181717?logo=github&logoColor=white)](https://github.com/ElarisLab/ElarisLab)  
+[![Twitter](https://img.shields.io/badge/Twitter-@ElarisLab-1DA1F2?logo=twitter&logoColor=white)](https://x.com/ElarisLab)  
 
 ---
 
