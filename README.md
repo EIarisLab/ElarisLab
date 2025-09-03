@@ -13,6 +13,7 @@ It identifies vulnerabilities, monitors smart contract risks, and forecasts mark
 [![Website](https://img.shields.io/badge/Web-ElarisAI.com-8B5CF6?logo=vercel&logoColor=white)](https://elarisai.com)  
 [![GitHub](https://img.shields.io/badge/GitHub-Code-181717?logo=github&logoColor=white)](https://github.com/ElarisLab/ElarisLab)  
 [![Twitter](https://img.shields.io/badge/Twitter-@ElarisLab-1DA1F2?logo=twitter&logoColor=white)](https://x.com/ElarisLab)  
+[![Telegram](https://img.shields.io/badge/Telegram-Community-2CA5E0?logo=telegram&logoColor=white)](https://t.me/ElarisLabAI)  
 
 ---
 
